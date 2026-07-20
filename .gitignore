@@ -1,0 +1,5 @@
+firmware/BusySignal/secrets.h
+server/.env
+__pycache__/
+*.pyc
+.venv/
