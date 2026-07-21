@@ -53,8 +53,10 @@ full pipeline (web UI → FastAPI → board HTTP → matrix) tested end-to-end.
   `/message?text=`, `/message/clear`, `/timer?minutes=&attached=`,
   `/timer/cancel`. Self-heals WiFi drops (retries every 30s) and prints a
   network scan + connection diagnostics over serial at boot.
-- **Server**: FastAPI on devbase1 port 3001 (`uvicorn app.main:app --host
-  0.0.0.0 --port 3001` from `server/`), proxying to the board per `.env`.
+- **Server**: FastAPI on devbase1 port 3001, running as systemd service
+  `busy-signal.service` (enabled at boot, restarts on failure; UFW allows
+  3001). Manage with `sudo systemctl {status,restart} busy-signal`.
+  Proxies to the board per `.env`.
 - **UI**: `http://<devbase1>:3001/` — retro on-air themed control panel
   (status grid, message, timer with attach toggle), phone-friendly.
 
@@ -64,11 +66,13 @@ arduino-cli compile --fqbn adafruit:samd:adafruit_matrixportal_m4 firmware/BusyS
 arduino-cli upload -p /dev/ttyACM0 --fqbn adafruit:samd:adafruit_matrixportal_m4 firmware/BusySignal
 ```
 
-**TODO:**
-- Reserve `192.168.68.74` for the board on the Deco (DHCP drift would break
-  the server's `BOARD_IP` — same failure mode as the starbase1 `.67`→`.69`
-  incident).
-- Run the server as a systemd service so it survives reboots.
+`192.168.68.74` is DHCP-reserved for the board on the Deco (set 2026-07-20),
+so `BOARD_IP` in `.env` is stable.
+
+**Why port 3001 is UFW-open:** the public vonholtencodes.com page is only a
+PIN-gated placeholder — the real control UI is this server, and the open
+port is what lets phones on the home LAN use it. LAN-only exposure (no
+router port-forward to devbase1).
 
 **Future:** a subpage on vonholtencodes-site — needs a bridge from starbase1
 to this board's LAN IP (or relocating the FastAPI service), not designed yet.
