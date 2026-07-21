@@ -12,6 +12,14 @@ a countdown timer (numeric + a depleting pepperoni pizza, always shown
 together). Retro on-air sign look: solid color slide alternating with an
 icon+label status slide every 5s, amber bulb-dot border throughout.
 
+![MEETING slide glowing above the office door](screenshots/meeting-above-door.jpg)
+
+| | |
+|---|---|
+| ![Come on In slide: doorway + arrow icon](screenshots/come-in-slide.jpg) | ![Pizza timer: 8 slices vanish as time runs out](screenshots/pizza-timer-closeup.jpg) |
+
+![Pizza timer running above the door](screenshots/pizza-timer-above-door.jpg)
+
 ## Architecture
 
 ```
