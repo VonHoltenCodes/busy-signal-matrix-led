@@ -62,27 +62,44 @@ bool timerAttached = false;
 unsigned long timerTotalSeconds = 0;
 unsigned long timerEndMillis = 0;
 
-void connectWiFi() {
-  Serial.print("Connecting to WiFi: ");
-  Serial.println(WIFI_SSID);
+// No WiFi.setPins() needed: the matrixportal_m4 variant defines
+// SPIWIFI/SPIWIFI_SS/NINA_* macros that WiFiNINA picks up at compile time.
+bool connectWiFi() {
+  if (WiFi.status() == WL_NO_MODULE) {
+    Serial.println("ERROR: ESP32 co-processor not responding over SPI!");
+    return false;
+  }
+  Serial.print("NINA firmware: ");
+  Serial.println(WiFi.firmwareVersion());
 
-  WiFi.setPins(SPIWIFI_SS, NINA_ACK, NINA_RESETN, NINA_GPIO0, &SPIWIFI);
-
-  int status = WiFi.begin(WIFI_SSID, WIFI_PASS);
-  unsigned long start = millis();
-  while (status != WL_CONNECTED && millis() - start < 20000) {
-    delay(500);
-    Serial.print(".");
-    status = WiFi.status();
+  Serial.println("Scanning networks...");
+  int n = WiFi.scanNetworks();
+  for (int i = 0; i < n; i++) {
+    Serial.print("  ");
+    Serial.print(WiFi.SSID(i));
+    Serial.print(" (");
+    Serial.print(WiFi.RSSI(i));
+    Serial.println(" dBm)");
   }
 
-  Serial.println();
-  if (status == WL_CONNECTED) {
-    Serial.print("Connected. IP address: ");
-    Serial.println(WiFi.localIP());
-  } else {
-    Serial.println("WiFi connection failed - check secrets.h and try again.");
+  for (int attempt = 1; attempt <= 4; attempt++) {
+    Serial.print("Connecting to ");
+    Serial.print(WIFI_SSID);
+    Serial.print(" (attempt ");
+    Serial.print(attempt);
+    Serial.println(")...");
+    int status = WiFi.begin(WIFI_SSID, WIFI_PASS);
+    if (status == WL_CONNECTED) {
+      Serial.print("Connected. IP address: ");
+      Serial.println(WiFi.localIP());
+      return true;
+    }
+    Serial.print("  failed, status=");
+    Serial.println(status);
+    delay(2000);
   }
+  Serial.println("WiFi connection failed - check secrets.h / signal.");
+  return false;
 }
 
 void setup() {
@@ -111,7 +128,20 @@ String queryParam(const String &query, const String &key);
 void render();
 float timerRemainingSeconds();
 
+unsigned long lastReconnectAttempt = 0;
+
 void loop() {
+  // Self-heal: if WiFi drops (router reboot etc.), retry every 30s.
+  if (WiFi.status() != WL_CONNECTED && millis() - lastReconnectAttempt > 30000) {
+    lastReconnectAttempt = millis();
+    Serial.println("WiFi down - reconnecting...");
+    if (WiFi.begin(WIFI_SSID, WIFI_PASS) == WL_CONNECTED) {
+      Serial.print("Reconnected. IP: ");
+      Serial.println(WiFi.localIP());
+      server.begin();
+    }
+  }
+
   WiFiClient client = server.available();
   if (client) {
     handleClient(client);
@@ -416,7 +446,9 @@ void renderColorSlide() {
   uint16_t bg = def.group == GROUP_BUSY ? rgb(222, 30, 30) : rgb(32, 190, 96);
   matrix.fillScreen(bg);
   drawBulbBorder(rgb(255, 176, 70));
-  drawCenteredText(def.label, rgb(244, 244, 240), 58, 2, 28, true);
+  // Black (unlit) text on the bright field - white on full red/green washed
+  // out; unlit pixels read like a stencil cut into the lit sign instead.
+  drawCenteredText(def.label, rgb(0, 0, 0), 58, 2, 28, true);
 }
 
 void renderStatusSlide() {

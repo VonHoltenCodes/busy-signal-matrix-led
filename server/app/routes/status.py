@@ -5,7 +5,15 @@ from ..config import BOARD_IP, BOARD_PORT, BOARD_TIMEOUT
 
 router = APIRouter(prefix="/api", tags=["status"])
 
-MODES = {"available", "busy", "meeting", "call"}
+# Must match the route table in firmware/BusySignal/BusySignal.ino
+STATUSES = {
+    "meeting":   {"group": "busy",      "label": "In a Meeting"},
+    "call":      {"group": "busy",      "label": "On a Call"},
+    "racing":    {"group": "busy",      "label": "Racing"},
+    "recording": {"group": "busy",      "label": "Recording"},
+    "working":   {"group": "available", "label": "Working, Available"},
+    "comein":    {"group": "available", "label": "Come on In"},
+}
 
 
 def _board_url(path: str) -> str:
@@ -20,23 +28,42 @@ def _call_board(path: str, params: dict | None = None) -> None:
         raise HTTPException(status_code=502, detail=f"Board unreachable: {exc}") from exc
 
 
-@router.post("/status/{mode}")
-def set_status(mode: str):
-    if mode not in MODES:
-        raise HTTPException(status_code=400, detail=f"Unknown mode: {mode}")
-    _call_board(f"/{mode}")
-    return {"mode": mode}
+@router.get("/statuses")
+def list_statuses():
+    return STATUSES
+
+
+@router.post("/status/{key}")
+def set_status(key: str):
+    if key not in STATUSES:
+        raise HTTPException(status_code=400, detail=f"Unknown status: {key}")
+    _call_board(f"/{key}")
+    return {"status": key, **STATUSES[key]}
 
 
 @router.post("/message")
 def send_message(text: str):
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="Message text is empty")
     _call_board("/message", params={"text": text})
     return {"text": text}
 
 
+@router.post("/message/clear")
+def clear_message():
+    _call_board("/message/clear")
+    return {"cleared": True}
+
+
 @router.post("/timer")
-def start_timer(minutes: int):
-    if minutes <= 0:
-        raise HTTPException(status_code=400, detail="minutes must be positive")
-    _call_board("/timer", params={"minutes": minutes})
-    return {"minutes": minutes}
+def start_timer(minutes: int, attached: bool = True):
+    if not 0 < minutes <= 120:
+        raise HTTPException(status_code=400, detail="minutes must be 1-120")
+    _call_board("/timer", params={"minutes": minutes, "attached": "1" if attached else "0"})
+    return {"minutes": minutes, "attached": attached}
+
+
+@router.post("/timer/cancel")
+def cancel_timer():
+    _call_board("/timer/cancel")
+    return {"cancelled": True}
