@@ -34,6 +34,10 @@ define('BOARD_TIMEOUT', 4);
 // Must match the route table in firmware/BusySignal/BusySignal.ino
 $STATUSES = ['meeting', 'call', 'racing', 'recording', 'working', 'comein'];
 
+// Must match the SCENES table in firmware/BusySignal/Scenes.cpp, plus
+// 'party' which cycles the whole playlist on the board.
+$SCENES = ['gate', 'welcome', 'trex', 'jeep', 'blue', 'egg', 'logo', 'birthday', 'party'];
+
 function board_get($path) {
     $ctx = stream_context_create(['http' => ['timeout' => BOARD_TIMEOUT]]);
     $body = @file_get_contents(BOARD_BASE . $path, false, $ctx);
@@ -81,6 +85,20 @@ switch ($action) {
 
     case 'timer_cancel':
         $path = '/timer/cancel';
+        break;
+
+    case 'scene':
+        $key = $_POST['key'] ?? '';
+        if (!in_array($key, $SCENES, true)) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'error' => 'Unknown scene']);
+            exit;
+        }
+        $path = '/scene?name=' . rawurlencode($key);
+        break;
+
+    case 'scene_stop':
+        $path = '/scene/stop';
         break;
 
     default:

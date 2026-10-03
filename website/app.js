@@ -43,8 +43,37 @@
       );
       if (result) {
         statusButtons.forEach((b) => b.classList.toggle("is-active", b === btn));
+        document.querySelectorAll(".scene-btn.is-active, #partyBtn.is-active")
+          .forEach((b) => b.classList.remove("is-active"));
       }
     });
+  });
+
+  // ---- Scenes ----
+  const sceneButtons = document.querySelectorAll(".scene-btn[data-scene]");
+  function markScene(active) {
+    sceneButtons.forEach((b) => b.classList.toggle("is-active", b === active));
+    document.getElementById("partyBtn").classList.toggle("is-active", active === null);
+  }
+  sceneButtons.forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const result = await api({ action: "scene", key: btn.dataset.scene }, "Playing: " + btn.textContent);
+      if (result) {
+        markScene(btn);
+        statusButtons.forEach((b) => b.classList.remove("is-active"));
+      }
+    });
+  });
+  document.getElementById("partyBtn").addEventListener("click", async () => {
+    const result = await api({ action: "scene", key: "party" }, "Party mode: playing every scene on a loop.");
+    if (result) {
+      markScene(null);
+      statusButtons.forEach((b) => b.classList.remove("is-active"));
+    }
+  });
+  document.getElementById("stopSceneBtn").addEventListener("click", async () => {
+    const result = await api({ action: "scene_stop" }, "Back to the status board.");
+    if (result) sceneButtons.forEach((b) => b.classList.remove("is-active"));
   });
 
   // ---- Message ----

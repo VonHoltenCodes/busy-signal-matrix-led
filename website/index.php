@@ -53,6 +53,25 @@ if (!isset($_SESSION['busy_signal_authenticated']) || $_SESSION['busy_signal_aut
       </div>
     </div>
 
+    <div class="group scenes">
+      <h2>Scenes</h2>
+      <p class="hint">Animated shows. They hold until you pick a status again.</p>
+      <div class="scene-grid">
+        <button class="scene-btn" data-scene="gate">The Gates</button>
+        <button class="scene-btn" data-scene="welcome">Welcome Sign</button>
+        <button class="scene-btn" data-scene="trex">T&#8209;Rex</button>
+        <button class="scene-btn" data-scene="jeep">Jeep 10</button>
+        <button class="scene-btn" data-scene="blue">Blue</button>
+        <button class="scene-btn" data-scene="egg">Hatching Egg</button>
+        <button class="scene-btn" data-scene="logo">Park Emblem</button>
+        <button class="scene-btn" data-scene="birthday">Nolan Is 6</button>
+      </div>
+      <div class="row">
+        <button class="primary party" id="partyBtn">Play all &#183; party mode</button>
+        <button class="ghost" id="stopSceneBtn">Back to status</button>
+      </div>
+    </div>
+
     <div class="group">
       <h2>Message</h2>
       <input type="text" id="messageInput" placeholder="Back in 10, grab a coffee..." maxlength="80">
