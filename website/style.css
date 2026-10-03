@@ -247,3 +247,35 @@ button.party {
   border: 1px solid var(--amber-dim);
   color: var(--amber);
 }
+
+/* ---- Face toggle ------------------------------------------------------ */
+/* Cyan for the lab sign, after the NEON PULSE lockup it puts on the wall. */
+:root { --neon: #00e5ff; --neon-dim: #0b4652; }
+
+.face-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.face-btn {
+  text-align: center;
+  border-top: 3px solid var(--border);
+}
+
+.face-btn[data-face="lab"] { border-top-color: var(--neon-dim); }
+.face-btn[data-face="classic"] { border-top-color: var(--amber-dim); }
+
+.face-btn.is-active[data-face="lab"] {
+  background: var(--panel-raised-hover);
+  border-top-color: var(--neon);
+  color: var(--neon);
+}
+
+.face-btn.is-active[data-face="classic"] {
+  background: var(--panel-raised-hover);
+  border-top-color: var(--amber);
+  color: var(--amber);
+}
+
+.face-row + .hint { margin: 0; }

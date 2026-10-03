@@ -15,7 +15,7 @@ SKETCH="$REPO/firmware/BusySignal"
 FQBN="adafruit:samd:adafruit_matrixportal_m4"
 BUILD="$REPO/build"
 BIN="$BUILD/BusySignal.ino.bin"
-BOARD_IP_DEFAULT="192.168.68.74"
+BOARD_IP_DEFAULT="192.168.68.67"
 
 # The OTA password lives in secrets.h, which is gitignored.
 ota_password() {

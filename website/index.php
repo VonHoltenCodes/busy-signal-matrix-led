@@ -30,16 +30,27 @@ if (!isset($_SESSION['busy_signal_authenticated']) || $_SESSION['busy_signal_aut
       <div class="sign-mini"><div></div><div></div></div>
       <div class="header-text">
         <h1>Busy Signal</h1>
-        <p class="sub">LED status board &middot; office door</p>
+        <p class="sub">NEON PULSE LAB sign &middot; lab entrance</p>
       </div>
       <a class="logout" href="logout.php">Log out</a>
     </header>
+
+    <div class="group">
+      <h2>Sign</h2>
+      <div class="face-row">
+        <button class="face-btn is-active" data-face="lab">Lab sign</button>
+        <button class="face-btn" data-face="classic">Classic board</button>
+      </div>
+      <p class="hint">The lab sign keeps the logo up and shows status as red or green
+        corner lamps. The classic board is the original full-screen status slides.</p>
+    </div>
 
     <div class="group">
       <h2>Status</h2>
       <div class="status-grid">
         <div class="status-col">
           <span class="col-label"><span class="dot busy"></span>Busy</span>
+          <button class="status-btn busy" data-status="busy">Busy</button>
           <button class="status-btn busy" data-status="meeting">In a Meeting</button>
           <button class="status-btn busy" data-status="call">On a Call</button>
           <button class="status-btn busy" data-status="racing">Racing</button>
@@ -47,8 +58,8 @@ if (!isset($_SESSION['busy_signal_authenticated']) || $_SESSION['busy_signal_aut
         </div>
         <div class="status-col">
           <span class="col-label"><span class="dot available"></span>Available</span>
-          <button class="status-btn available" data-status="working">Working, Available</button>
           <button class="status-btn available" data-status="comein">Come on In</button>
+          <button class="status-btn available" data-status="working">Working, Available</button>
         </div>
       </div>
     </div>
@@ -68,12 +79,13 @@ if (!isset($_SESSION['busy_signal_authenticated']) || $_SESSION['busy_signal_aut
       </div>
       <div class="row">
         <button class="primary party" id="partyBtn">Play all &#183; party mode</button>
-        <button class="ghost" id="stopSceneBtn">Back to status</button>
+        <button class="ghost" id="stopSceneBtn">Back to the sign</button>
       </div>
     </div>
 
     <div class="group">
       <h2>Message</h2>
+      <p class="hint">On the lab sign the jet tows it across in its wake.</p>
       <input type="text" id="messageInput" placeholder="Back in 10, grab a coffee..." maxlength="80">
       <div class="row">
         <button class="primary" id="sendMessageBtn">Send to sign</button>
@@ -97,7 +109,7 @@ if (!isset($_SESSION['busy_signal_authenticated']) || $_SESSION['busy_signal_aut
       <input type="number" id="manualMinutes" placeholder="or type minutes (1-120)" min="1" max="120">
       <label class="checkbox-row">
         <input type="checkbox" id="attachToggle" checked>
-        Attach to current status (pizza takes the status slide's beat)
+        Attach (lab sign: the countdown rides behind the jet; classic: the pizza takes the status slide's beat)
       </label>
       <div class="row">
         <button class="primary" id="startTimerBtn">Start timer</button>

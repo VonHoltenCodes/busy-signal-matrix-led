@@ -33,6 +33,19 @@
     }
   }
 
+  // ---- Face ----
+  const faceButtons = document.querySelectorAll(".face-btn[data-face]");
+  faceButtons.forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const result = await api({ action: "face", key: btn.dataset.face }, "Showing: " + btn.textContent);
+      if (result) {
+        faceButtons.forEach((b) => b.classList.toggle("is-active", b === btn));
+        document.querySelectorAll(".scene-btn.is-active, #partyBtn.is-active")
+          .forEach((b) => b.classList.remove("is-active"));
+      }
+    });
+  });
+
   // ---- Status buttons ----
   const statusButtons = document.querySelectorAll(".status-btn[data-status]");
   statusButtons.forEach((btn) => {
@@ -72,7 +85,7 @@
     }
   });
   document.getElementById("stopSceneBtn").addEventListener("click", async () => {
-    const result = await api({ action: "scene_stop" }, "Back to the status board.");
+    const result = await api({ action: "scene_stop" }, "Back to the sign.");
     if (result) sceneButtons.forEach((b) => b.classList.remove("is-active"));
   });
 

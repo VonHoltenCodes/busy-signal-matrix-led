@@ -12,6 +12,15 @@ const BS = require('./engine.js');
 BS.setFont(require('./font.js'));
 globalThis.BS = BS;
 const JP = require('./scenes.js');
+const LAB = require('./lab.js');
+
+// The lab face, idle and carrying a message, rendered like scenes.
+const LAB_MSG = process.env.LAB_MSG || 'BACK IN 10 MIN';
+const LAB_FACES = [
+  { key: 'lab', name: 'Lab sign, idle', dur: LAB.IDLE_CYCLE, fn: (t) => LAB.frame(t, false, '') },
+  { key: 'labmsg', name: 'Lab sign, message', dur: LAB.msgCycle(LAB_MSG), fn: (t) => LAB.frame(t, true, LAB_MSG) },
+];
+const byKey = (k) => JP.byKey(k) || LAB_FACES.find((s) => s.key === k);
 
 const W = BS.W, H = BS.H;
 
@@ -87,7 +96,7 @@ function sheetAt(scene, times, scale, cols) {
   return { img, outW, outH };
 }
 
-const list = key === 'all' ? JP.SCENES : [JP.byKey(key)];
+const list = key === 'all' ? JP.SCENES.concat(LAB_FACES) : [byKey(key)];
 for (const scene of list) {
   if (!scene) { console.error('no such scene:', key); process.exit(1); }
   const { img, outW, outH } = TIMES
