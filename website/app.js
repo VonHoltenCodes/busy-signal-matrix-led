@@ -33,6 +33,19 @@
     }
   }
 
+  // ---- Face ----
+  const faceButtons = document.querySelectorAll(".face-btn[data-face]");
+  faceButtons.forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const result = await api({ action: "face", key: btn.dataset.face }, "Showing: " + btn.textContent);
+      if (result) {
+        faceButtons.forEach((b) => b.classList.toggle("is-active", b === btn));
+        document.querySelectorAll(".scene-btn.is-active, #partyBtn.is-active")
+          .forEach((b) => b.classList.remove("is-active"));
+      }
+    });
+  });
+
   // ---- Status buttons ----
   const statusButtons = document.querySelectorAll(".status-btn[data-status]");
   statusButtons.forEach((btn) => {
@@ -43,8 +56,37 @@
       );
       if (result) {
         statusButtons.forEach((b) => b.classList.toggle("is-active", b === btn));
+        document.querySelectorAll(".scene-btn.is-active, #partyBtn.is-active")
+          .forEach((b) => b.classList.remove("is-active"));
       }
     });
+  });
+
+  // ---- Scenes ----
+  const sceneButtons = document.querySelectorAll(".scene-btn[data-scene]");
+  function markScene(active) {
+    sceneButtons.forEach((b) => b.classList.toggle("is-active", b === active));
+    document.getElementById("partyBtn").classList.toggle("is-active", active === null);
+  }
+  sceneButtons.forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const result = await api({ action: "scene", key: btn.dataset.scene }, "Playing: " + btn.textContent);
+      if (result) {
+        markScene(btn);
+        statusButtons.forEach((b) => b.classList.remove("is-active"));
+      }
+    });
+  });
+  document.getElementById("partyBtn").addEventListener("click", async () => {
+    const result = await api({ action: "scene", key: "party" }, "Party mode: playing every scene on a loop.");
+    if (result) {
+      markScene(null);
+      statusButtons.forEach((b) => b.classList.remove("is-active"));
+    }
+  });
+  document.getElementById("stopSceneBtn").addEventListener("click", async () => {
+    const result = await api({ action: "scene_stop" }, "Back to the sign.");
+    if (result) sceneButtons.forEach((b) => b.classList.remove("is-active"));
   });
 
   // ---- Message ----

@@ -2,7 +2,13 @@
 #include <SPI.h>
 #include <WiFiNINA.h>
 #include <math.h>
+// No mDNS: we upload by IP with curl, and skipping it saves a UDP socket.
+#define NO_OTA_PORT
+#include <ArduinoOTA.h>
 #include "secrets.h"
+#include "Gfx.h"
+#include "Scenes.h"
+#include "Lab.h"
 
 // ---- Matrix Portal M4 HUB75 pin configuration ----
 // Reused as-is from Rocket_launch_Rev3.ino - these are the board's fixed
@@ -28,7 +34,7 @@ WiFiServer server(80);
 // Mirrors the STATUSES table validated in the browser simulator: group
 // drives the color/status-slide background, label is what's drawn (short
 // enough to always fit at scale 1), path is the HTTP route that selects it.
-enum StatusKey { ST_MEETING, ST_CALL, ST_RACING, ST_RECORDING, ST_WORKING, ST_COMEIN, ST_COUNT };
+enum StatusKey { ST_BUSY, ST_MEETING, ST_CALL, ST_RACING, ST_RECORDING, ST_WORKING, ST_COMEIN, ST_COUNT };
 enum Group { GROUP_BUSY, GROUP_AVAILABLE };
 
 struct StatusDef {
@@ -38,6 +44,7 @@ struct StatusDef {
 };
 
 const StatusDef STATUS_DEFS[ST_COUNT] = {
+  { GROUP_BUSY,      "BUSY",    "/busy"      },
   { GROUP_BUSY,      "MEETING", "/meeting"   },
   { GROUP_BUSY,      "ON CALL", "/call"      },
   { GROUP_BUSY,      "RACING",  "/racing"    },
@@ -47,20 +54,58 @@ const StatusDef STATUS_DEFS[ST_COUNT] = {
 };
 
 // ---- Display state ----
-enum DisplayMode { DISP_NORMAL, DISP_MESSAGE, DISP_TIMER_STANDALONE };
-// NORMAL alternates the color slide and status slide for currentStatus every
-// 5s. If a timer is active and attached, the pizza+countdown takes the
-// status-slide beat instead of the plain icon+label. TIMER_STANDALONE is a
+enum DisplayMode { DISP_LAB, DISP_NORMAL, DISP_MESSAGE, DISP_TIMER_STANDALONE, DISP_SCENE, DISP_PARTY };
+// LAB is the NEON PULSE LAB sign: the status only colours the corner lamps
+// and a message rides behind the jet, so nothing ever cuts away from it.
+// NORMAL is the classic board: it alternates the color slide and status
+// slide for currentStatus every 5s, and if a timer is active and attached,
+// the pizza+countdown takes the status-slide beat. TIMER_STANDALONE is a
 // full-screen countdown that doesn't participate in that cycle at all.
 
-DisplayMode displayMode = DISP_NORMAL;
-StatusKey currentStatus = ST_WORKING;
+// Which everyday face the sign returns to after a scene, a timer or a
+// message on the classic board. /face?name=lab|classic switches it.
+enum Face { FACE_LAB, FACE_CLASSIC };
+Face face = FACE_LAB;
+
+// What the sign shows on power-up: DISP_LAB for the lab sign, DISP_NORMAL
+// for the classic board (set face to match), DISP_PARTY to run the
+// birthday show with no phone and no network.
+#define BOOT_MODE DISP_LAB
+
+DisplayMode displayMode = BOOT_MODE;
+StatusKey currentStatus = ST_COMEIN;
 String messageText = "";
 
 bool timerActive = false;
 bool timerAttached = false;
 unsigned long timerTotalSeconds = 0;
 unsigned long timerEndMillis = 0;
+
+// Scene playback. Scenes are pure functions of elapsed seconds, so all the
+// state we need is which one and when it started. DISP_SCENE loops a single
+// scene; DISP_PARTY walks the whole playlist and repeats.
+int sceneIndex = 0;
+unsigned long sceneStartMillis = 0;
+
+// The lab face's clock. Restarted whenever what the jet carries changes,
+// so a new message flies in from the right edge rather than mid-screen.
+unsigned long labStartMillis = 0;
+
+void labRestart() { labStartMillis = millis(); }
+
+// Back to whichever everyday face is selected.
+void showFace() {
+  displayMode = face == FACE_LAB ? DISP_LAB : DISP_NORMAL;
+  labRestart();
+}
+
+// Only poll the OTA server once it has actually been started - before that
+// its socket is not open and available() has nothing valid to ask.
+bool otaReady = false;
+// Whether the port-80 listening socket is currently open. It has to be
+// re-armed on every disconnected->connected transition, not just when
+// WiFi.begin() happens to return connected.
+bool serverArmed = false;
 
 // No WiFi.setPins() needed: the matrixportal_m4 variant defines
 // SPIWIFI/SPIWIFI_SS/NINA_* macros that WiFiNINA picks up at compile time.
@@ -102,6 +147,9 @@ bool connectWiFi() {
   return false;
 }
 
+void startOta();
+bool render();
+
 void setup() {
   Serial.begin(9600);
 
@@ -112,8 +160,48 @@ void setup() {
     for (;;); // halt on matrix init failure
   }
 
+  // Draw a frame before touching WiFi. WiFi.begin() blocks for several
+  // seconds per attempt, and an unplugged-and-moved sign should light up
+  // immediately rather than sit black while it looks for a network.
+  sceneStartMillis = millis();
+  if (render()) gBlit(matrix);
+  matrix.show();
+
   connectWiFi();
   server.begin();
+  serverArmed = true;
+  // Restart the clocks so the show opens at t=0 however long WiFi took.
+  sceneStartMillis = millis();
+  labRestart();
+}
+
+// Wireless firmware upload. The board writes the incoming image into the
+// top half of flash and copies it down on reset, so the sketch must stay
+// under half of the 508 KB available. Upload with:
+//   curl -u arduino:<OTA_PASSWORD> -H "Expect:" --data-binary @<sketch>.bin \
+//        http://<board-ip>:65280/sketch
+void startOta() {
+  IPAddress ip = WiFi.localIP();
+  ArduinoOTA.begin(ip, "busysignal", OTA_PASSWORD, InternalStorage);
+  // Paint the notice here rather than setting a flag for render(): the
+  // library blocks inside its own read loop straight after this callback,
+  // so there is no next frame until the board reboots into the new image.
+  ArduinoOTA.onStart([]() {
+    gResetClip();
+    gClear(gC(6, 4, 10));
+    gTextCentered("UPDATING", 8, 1, gC(255, 168, 40));
+    gTextCentered("HOLD ON", 18, 1, gC(122, 122, 128));
+    gBlit(matrix);
+    matrix.show();
+  });
+  ArduinoOTA.onError([](int code, const char *msg) {
+    Serial.print("OTA error ");
+    Serial.print(code);
+    Serial.print(": ");
+    Serial.println(msg);
+  });
+  otaReady = true;
+  Serial.println("OTA ready on :65280");
 }
 
 // ---- HTTP request handling ----
@@ -123,24 +211,44 @@ void setup() {
 // no body.
 void handleClient(WiFiClient &client);
 void applyRoute(const String &path, const String &query);
+String describeState();
 String urlDecode(const String &input);
 String queryParam(const String &query, const String &key);
-void render();
+bool render();
 float timerRemainingSeconds();
 
 unsigned long lastReconnectAttempt = 0;
+unsigned long reconnectDelay = 30000;
 
 void loop() {
-  // Self-heal: if WiFi drops (router reboot etc.), retry every 30s.
-  if (WiFi.status() != WL_CONNECTED && millis() - lastReconnectAttempt > 30000) {
-    lastReconnectAttempt = millis();
-    Serial.println("WiFi down - reconnecting...");
-    if (WiFi.begin(WIFI_SSID, WIFI_PASS) == WL_CONNECTED) {
-      Serial.print("Reconnected. IP: ");
+  if (WiFi.status() != WL_CONNECTED) {
+    // Both sockets go with the connection and have to be reopened.
+    otaReady = false;
+    serverArmed = false;
+    // Retry with backoff. WiFi.begin() blocks for seconds, so a sign running
+    // somewhere with no network must not stall the animation every 30s.
+    if (millis() - lastReconnectAttempt > reconnectDelay) {
+      lastReconnectAttempt = millis();
+      Serial.println("WiFi down - reconnecting...");
+      if (WiFi.begin(WIFI_SSID, WIFI_PASS) != WL_CONNECTED) {
+        reconnectDelay = min(reconnectDelay * 2, 300000UL);
+      }
+    }
+  } else if (!serverArmed || !otaReady) {
+    // Re-arm from here rather than off WiFi.begin()'s return value. The NINA
+    // module can report failure and associate a moment later, which left the
+    // board pinging with a dead port 80 until someone power-cycled it.
+    reconnectDelay = 30000;
+    if (!serverArmed) {
+      Serial.print("WiFi up. IP: ");
       Serial.println(WiFi.localIP());
       server.begin();
+      serverArmed = true;
     }
+    if (!otaReady) startOta();
   }
+
+  if (otaReady) ArduinoOTA.poll();
 
   WiFiClient client = server.available();
   if (client) {
@@ -149,14 +257,17 @@ void loop() {
 
   if (timerActive && millis() >= timerEndMillis) {
     timerActive = false;
-    if (displayMode == DISP_TIMER_STANDALONE) displayMode = DISP_NORMAL;
+    if (displayMode == DISP_TIMER_STANDALONE) showFace();
+    // The countdown was the jet's cargo; send it round empty again.
+    else if (displayMode == DISP_LAB && timerAttached && !messageText.length()) labRestart();
   }
 
-  render();
+  if (render()) gBlit(matrix);
   matrix.show();
 }
 
 void handleClient(WiFiClient &client) {
+  bool reportState = false;
   String requestLine = "";
   unsigned long start = millis();
   while (client.connected() && millis() - start < 1000) {
@@ -175,32 +286,66 @@ void handleClient(WiFiClient &client) {
     int qIndex = target.indexOf('?');
     String path = qIndex >= 0 ? target.substring(0, qIndex) : target;
     String query = qIndex >= 0 ? target.substring(qIndex + 1) : "";
-    applyRoute(path, query);
+    if (path == "/state") reportState = true;
+    else applyRoute(path, query);
   }
 
   client.println("HTTP/1.1 200 OK");
   client.println("Content-Type: text/plain");
   client.println("Connection: close");
   client.println();
-  client.println("OK");
+  client.println(reportState ? describeState() : String("OK"));
   client.stop();
+}
+
+// Short, human-readable description of what the sign is showing. Served on
+// /state so the panel (and a plain curl) can tell without guessing.
+String describeState() {
+  switch (displayMode) {
+    case DISP_LAB: {
+      String s = String("lab:") + (STATUS_DEFS[currentStatus].path + 1);
+      if (messageText.length()) s += "+message";
+      else if (timerActive && timerAttached) s += "+timer";
+      return s;
+    }
+    case DISP_MESSAGE:           return "message";
+    case DISP_TIMER_STANDALONE:  return "timer";
+    case DISP_SCENE:             return String("scene:") + SCENES[sceneIndex].key;
+    case DISP_PARTY:             return String("party:") + SCENES[sceneIndex].key;
+// Parenthesised: without them the String concatenation happens first
+    // and the +1 appends the digit instead of skipping the leading slash.
+    default:                     return String("status:") + (STATUS_DEFS[currentStatus].path + 1);
+  }
 }
 
 void applyRoute(const String &path, const String &query) {
   for (int i = 0; i < ST_COUNT; i++) {
     if (path == STATUS_DEFS[i].path) {
       currentStatus = (StatusKey)i;
-      displayMode = DISP_NORMAL;
+      // On the lab sign a status only recolours the lamps, so the jet and
+      // whatever it is carrying fly on undisturbed.
+      if (face == FACE_LAB && displayMode == DISP_LAB) return;
       timerActive = false;
+      if (face == FACE_LAB) showFace();
+      else displayMode = DISP_NORMAL;
       return;
     }
   }
 
   if (path == "/message") {
     messageText = urlDecode(queryParam(query, "text"));
-    displayMode = DISP_MESSAGE;
+    if (face == FACE_LAB) showFace();
+    else displayMode = DISP_MESSAGE;
   } else if (path == "/message/clear") {
+    messageText = "";
     if (displayMode == DISP_MESSAGE) displayMode = DISP_NORMAL;
+    else if (displayMode == DISP_LAB) labRestart();
+  } else if (path == "/face") {
+    String name = queryParam(query, "name");
+    if (name == "lab") face = FACE_LAB;
+    else if (name == "classic") face = FACE_CLASSIC;
+    else return;
+    showFace();
   } else if (path == "/timer") {
     long minutes = queryParam(query, "minutes").toInt();
     if (minutes > 0) {
@@ -209,11 +354,31 @@ void applyRoute(const String &path, const String &query) {
       timerEndMillis = millis() + timerTotalSeconds * 1000UL;
       timerActive = true;
       timerAttached = attached;
-      displayMode = attached ? DISP_NORMAL : DISP_TIMER_STANDALONE;
+      // Attached on the lab sign, the countdown rides behind the jet.
+      if (!attached) displayMode = DISP_TIMER_STANDALONE;
+      else showFace();
     }
   } else if (path == "/timer/cancel") {
+    bool wasCargo = displayMode == DISP_LAB && timerActive && timerAttached && !messageText.length();
     timerActive = false;
-    if (displayMode == DISP_TIMER_STANDALONE) displayMode = DISP_NORMAL;
+    if (displayMode == DISP_TIMER_STANDALONE) showFace();
+    else if (wasCargo) labRestart();
+  } else if (path == "/scene") {
+    String name = urlDecode(queryParam(query, "name"));
+    if (name == "party") {
+      displayMode = DISP_PARTY;
+      sceneIndex = 0;
+      sceneStartMillis = millis();
+    } else {
+      int idx = sceneIndexByKey(name.c_str());
+      if (idx >= 0) {
+        displayMode = DISP_SCENE;
+        sceneIndex = idx;
+        sceneStartMillis = millis();
+      }
+    }
+  } else if (path == "/scene/stop") {
+    if (displayMode == DISP_SCENE || displayMode == DISP_PARTY) showFace();
   }
 }
 
@@ -413,6 +578,12 @@ void iconWorking(int16_t cx, int16_t cy) {
   thickLineF(cx - 1, cy + 6, cx + 7, cy - 6, green, 2.2);
 }
 
+void iconBusy(int16_t cx, int16_t cy) {
+  // No-entry roundel.
+  matrix.fillCircle(cx, cy, 9, rgb(222, 30, 30));
+  fillRectF(cx - 6, cy - 1, 13, 3, rgb(244, 244, 240));
+}
+
 void iconComeIn(int16_t cx, int16_t cy) {
   uint16_t brown = rgb(140, 95, 55);
   uint16_t green = rgb(70, 210, 130);
@@ -424,6 +595,7 @@ void iconComeIn(int16_t cx, int16_t cy) {
 
 void drawStatusIcon(StatusKey key, int16_t cx, int16_t cy, uint16_t bg) {
   switch (key) {
+    case ST_BUSY:      iconBusy(cx, cy); break;
     case ST_MEETING:   iconMeeting(cx, cy); break;
     case ST_CALL:      iconCall(cx, cy, bg); break;
     case ST_RACING:    iconRacing(cx, cy); break;
@@ -538,7 +710,52 @@ void renderTimerPizza() {
   drawCenteredText(fmtClock(remaining), rgb(255, 176, 70), 60, 1, 7, false);
 }
 
-void render() {
+// Seconds on the lab face's clock. Kept small: after a week or so a float
+// of seconds can no longer resolve one frame and the jet would stutter.
+// About an hour's worth of whole passes is folded off at a time, which
+// leaves the jet exactly where it was within its pass.
+float labSeconds(const char *cargo) {
+  unsigned long cycleMs = (unsigned long)lroundf(labCycle(cargo) * 1000.0f);
+  unsigned long span = cycleMs * (3600000UL / cycleMs);
+  unsigned long elapsed = millis() - labStartMillis;
+  if (elapsed >= span) {
+    labStartMillis += span;
+    elapsed -= span;
+  }
+  return elapsed / 1000.0f;
+}
+
+// Returns true when the frame was composed in the Gfx framebuffer and still
+// needs blitting; the legacy status screens draw straight to the matrix.
+bool render() {
+  if (displayMode == DISP_LAB) {
+    // An attached timer is the jet's cargo when there is no message.
+    String clock;
+    const char *cargo = messageText.c_str();
+    if (!messageText.length() && timerActive && timerAttached) {
+      clock = fmtClock(timerRemainingSeconds());
+      cargo = clock.c_str();
+    }
+    gResetClip();
+    gClear(0);
+    labFrame(labSeconds(cargo), STATUS_DEFS[currentStatus].group == GROUP_BUSY, cargo);
+    return true;
+  }
+
+  if (displayMode == DISP_SCENE || displayMode == DISP_PARTY) {
+    float elapsed = (millis() - sceneStartMillis) / 1000.0f;
+    if (displayMode == DISP_PARTY && elapsed >= SCENES[sceneIndex].dur) {
+      sceneIndex = (sceneIndex + 1) % SCENE_COUNT;
+      sceneStartMillis = millis();
+      elapsed = 0;
+    }
+    float dur = SCENES[sceneIndex].dur;
+    float t = (displayMode == DISP_PARTY) ? elapsed : fmodf(elapsed, dur);
+    gResetClip();
+    SCENES[sceneIndex].fn(t);
+    return true;
+  }
+
   if (displayMode == DISP_MESSAGE) {
     renderMessageSlide();
   } else if (displayMode == DISP_TIMER_STANDALONE) {
@@ -553,4 +770,5 @@ void render() {
       renderStatusSlide();
     }
   }
+  return false;
 }
